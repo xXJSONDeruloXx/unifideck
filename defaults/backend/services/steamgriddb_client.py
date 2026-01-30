@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Import consolidated utilities
 from backend.utils.steam import find_steam_path
-from steam_user_utils import get_logged_in_steam_user
+from backend.utils.steam_user_utils import get_logged_in_steam_user
 
 logger = logging.getLogger(__name__)
 

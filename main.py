@@ -37,14 +37,14 @@ from backend.services import (
 )
 
 # Import VDF utilities
-from vdf_utils import load_shortcuts_vdf, save_shortcuts_vdf
+from backend.utils.vdf_utils import load_shortcuts_vdf, save_shortcuts_vdf
 
 # Import Steam user detection utilities
-from steam_user_utils import get_logged_in_steam_user, migrate_user0_to_logged_in_user
+from backend.utils.steam_user_utils import get_logged_in_steam_user, migrate_user0_to_logged_in_user
 
 # Import SteamGridDB client
 try:
-    from steamgriddb_client import SteamGridDBClient
+    from backend.services.steamgriddb_client import SteamGridDBClient
     STEAMGRIDDB_AVAILABLE = True
 except ImportError:
     STEAMGRIDDB_AVAILABLE = False
@@ -53,10 +53,10 @@ except ImportError:
 from backend.download.manager import get_download_queue, DownloadQueue
 
 # Import Cloud Save Manager
-from cloud_save_manager import CloudSaveManager
+from backend.services.cloud_save_manager import CloudSaveManager
 
 # Import resilient launch options parser
-from launch_options_parser import extract_store_id, is_unifideck_shortcut, get_full_id, get_store_prefix
+from backend.utils.launch_options_parser import extract_store_id, is_unifideck_shortcut, get_full_id, get_store_prefix
 
 # ============================================================================
 # NEW MODULAR BACKEND IMPORTS (Phase 1: Available for use alongside old code)

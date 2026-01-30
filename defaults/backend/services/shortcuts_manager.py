@@ -18,8 +18,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vdf_utils import load_shortcuts_vdf, save_shortcuts_vdf
-from steam_user_utils import get_logged_in_steam_user
+from backend.utils.vdf_utils import load_shortcuts_vdf, save_shortcuts_vdf
+from backend.utils.steam_user_utils import get_logged_in_steam_user
 from backend.utils.steam import find_steam_path
 
 logger = logging.getLogger("ShortcutsManager")
