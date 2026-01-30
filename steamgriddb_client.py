@@ -12,7 +12,8 @@ import aiohttp
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-# Import Steam user detection utility
+# Import consolidated utilities
+from backend.utils.steam import find_steam_path
 from steam_user_utils import get_logged_in_steam_user
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class SteamGridDBClient:
 
     def __init__(self, api_key: Optional[str] = None, steam_path: Optional[str] = None):
         self.api_key = api_key
-        self.steam_path = steam_path or self._find_steam_path()
+        self.steam_path = steam_path or find_steam_path()
         self.grid_path = self._find_grid_path()
 
         if not STEAMGRIDDB_AVAILABLE:
@@ -47,18 +48,7 @@ class SteamGridDBClient:
                 logger.error(f"Failed to initialize SteamGridDB client: {e}")
                 self.client = None
 
-    def _find_steam_path(self) -> Optional[str]:
-        """Find Steam installation directory"""
-        possible_paths = [
-            os.path.expanduser("~/.steam/steam"),
-            os.path.expanduser("~/.local/share/Steam"),
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(os.path.join(path, "steamapps")):
-                return path
-
-        return None
+    # _find_steam_path removed - now using backend.utils.steam.find_steam_path
 
     def _find_grid_path(self) -> Optional[str]:
         """Find Steam grid images directory for the logged-in user.

@@ -9,6 +9,9 @@ import os
 import logging
 from typing import Optional
 
+# Import consolidated Steam utilities
+from backend.utils.steam import find_steam_path
+
 try:
     import vdf
     VDF_AVAILABLE = True
@@ -54,18 +57,7 @@ def get_logged_in_steam_user(steam_path: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def _find_steam_path() -> Optional[str]:
-    """Find Steam installation directory"""
-    possible_paths = [
-        os.path.expanduser("~/.steam/steam"),
-        os.path.expanduser("~/.local/share/Steam"),
-    ]
-
-    for path in possible_paths:
-        if os.path.exists(os.path.join(path, "steamapps")):
-            return path
-
-    return None
+# _find_steam_path removed - now using backend.utils.steam.find_steam_path
 
 
 def _get_user_from_loginusers(steam_path: str) -> Optional[str]:

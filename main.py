@@ -17,6 +17,22 @@ DECKY_PLUGIN_DIR = os.environ.get("DECKY_PLUGIN_DIR")
 if DECKY_PLUGIN_DIR:
     sys.path.insert(0, DECKY_PLUGIN_DIR)
 
+# Import consolidated utilities
+from backend.utils.steam import find_steam_path
+from backend.repositories.cache_repository import (
+    JSONCache,
+    steam_appid_cache,
+    shortcuts_registry_cache,
+    game_sizes_cache,
+    compat_cache
+)
+from backend.services import (
+    SyncProgress, 
+    BackgroundSizeFetcher,
+    InstallHandler,
+    BackgroundSyncService
+)
+
 # Import VDF utilities
 from vdf_utils import load_shortcuts_vdf, save_shortcuts_vdf
 
@@ -112,37 +128,8 @@ else:
 STEAM_APPID_CACHE_FILE = "steam_appid_cache.json"
 
 
-def get_steam_appid_cache_path() -> Path:
-    """Get path to steam_app_id cache file (in user data, not plugin dir)"""
-    return Path.home() / ".local" / "share" / "unifideck" / STEAM_APPID_CACHE_FILE
-
-
-def load_steam_appid_cache() -> Dict[int, int]:
-    """Load steam_app_id mappings from cache file. Returns {shortcut_appid: steam_appid}"""
-    cache_path = get_steam_appid_cache_path()
-    try:
-        if cache_path.exists():
-            with open(cache_path, 'r') as f:
-                data = json.load(f)
-                # Convert string keys back to int
-                return {int(k): v for k, v in data.items()}
-    except Exception as e:
-        logger.error(f"Error loading steam_appid cache: {e}")
-    return {}
-
-
-def save_steam_appid_cache(cache: Dict[int, int]) -> bool:
-    """Save steam_app_id mappings to cache file"""
-    cache_path = get_steam_appid_cache_path()
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w') as f:
-            json.dump(cache, f)
-        logger.info(f"Saved {len(cache)} steam_app_id mappings to cache")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving steam_appid cache: {e}")
-        return False
+# Steam AppID cache - now using cache_repository
+# Use: steam_appid_cache.load() / steam_appid_cache.save(data)
 
 
 # Shortcuts Registry - maps game launch options to appid for reconciliation after plugin reinstall
@@ -211,83 +198,23 @@ def get_registered_appid(launch_options: str) -> Optional[int]:
 GAME_SIZES_CACHE_FILE = "game_sizes.json"
 
 # In-memory cache for game sizes (avoids disk I/O on every get_game_info call)
-_game_sizes_mem_cache: Optional[Dict[str, Dict]] = None
-_game_sizes_mem_cache_time: float = 0
-GAME_SIZES_MEM_CACHE_TTL = 60.0  # 60 seconds (sizes change rarely)
-
-
-def get_game_sizes_cache_path() -> Path:
-    """Get path to game sizes cache file (in user data, not plugin dir)"""
-    return Path.home() / ".local" / "share" / "unifideck" / GAME_SIZES_CACHE_FILE
-
-
-def _invalidate_game_sizes_mem_cache():
-    """Invalidate in-memory game sizes cache"""
-    global _game_sizes_mem_cache, _game_sizes_mem_cache_time
-    _game_sizes_mem_cache = None
-    _game_sizes_mem_cache_time = 0
-
-
-def load_game_sizes_cache() -> Dict[str, Dict]:
-    """Load game sizes cache with in-memory caching. Returns {store:game_id: {size_bytes, updated}}"""
-    global _game_sizes_mem_cache, _game_sizes_mem_cache_time
-    
-    # Check in-memory cache first
-    now = time.time()
-    if _game_sizes_mem_cache is not None and (now - _game_sizes_mem_cache_time) < GAME_SIZES_MEM_CACHE_TTL:
-        return _game_sizes_mem_cache
-    
-    # Cache miss - read from disk
-    cache_path = get_game_sizes_cache_path()
-    result = {}
-    try:
-        if cache_path.exists():
-            with open(cache_path, 'r') as f:
-                result = json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading game sizes cache: {e}")
-    
-    # Update in-memory cache
-    _game_sizes_mem_cache = result
-    _game_sizes_mem_cache_time = now
-    return result
-
-
-def save_game_sizes_cache(cache: Dict[str, Dict]) -> bool:
-    """Save game sizes cache to file and update in-memory cache"""
-    global _game_sizes_mem_cache, _game_sizes_mem_cache_time
-    
-    cache_path = get_game_sizes_cache_path()
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w') as f:
-            json.dump(cache, f, indent=2)
-        logger.debug(f"Saved {len(cache)} entries to game sizes cache")
-        
-        # Update in-memory cache immediately
-        _game_sizes_mem_cache = cache
-        _game_sizes_mem_cache_time = time.time()
-        return True
-    except Exception as e:
-        logger.error(f"Error saving game sizes cache: {e}")
-        _invalidate_game_sizes_mem_cache()  # Invalidate on error
-        return False
-
+# Game sizes cache - now using cache_repository
+# Use: game_sizes_cache.load() / game_sizes_cache.save(data)
 
 def cache_game_size(store: str, game_id: str, size_bytes: int) -> bool:
     """Cache a game's download size"""
-    cache = load_game_sizes_cache()
+    cache = game_sizes_cache.load({})
     cache_key = f"{store}:{game_id}"
     cache[cache_key] = {
         'size_bytes': size_bytes,
         'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     }
-    return save_game_sizes_cache(cache)
+    return game_sizes_cache.save(cache)
 
 
 def get_cached_game_size(store: str, game_id: str) -> Optional[int]:
     """Get cached game size, or None if not cached"""
-    cache = load_game_sizes_cache()  # Uses in-memory cache
+    cache = game_sizes_cache.load({})  # Uses in-memory cache from repository
     cache_key = f"{store}:{game_id}"
     entry = cache.get(cache_key)
     return entry.get('size_bytes') if entry else None
@@ -312,35 +239,8 @@ DECK_CATEGORIES = {
 COMPAT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 
-def get_compat_cache_path() -> Path:
-    """Get path to compatibility cache file"""
-    return Path.home() / ".local" / "share" / "unifideck" / COMPAT_CACHE_FILE
-
-
-def load_compat_cache() -> Dict[str, Dict]:
-    """Load compatibility cache. Returns {normalized_title: {tier, deckVerified, steamAppId, timestamp}}"""
-    cache_path = get_compat_cache_path()
-    try:
-        if cache_path.exists():
-            with open(cache_path, 'r') as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading compat cache: {e}")
-    return {}
-
-
-def save_compat_cache(cache: Dict[str, Dict]) -> bool:
-    """Save compatibility cache to file"""
-    cache_path = get_compat_cache_path()
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w') as f:
-            json.dump(cache, f, indent=2)
-        logger.debug(f"Saved {len(cache)} entries to compat cache")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving compat cache: {e}")
-        return False
+# Compatibility cache - now using cache_repository
+# Use: compat_cache.load() / compat_cache.save(data)
 
 
 # ============================================================================
@@ -351,7 +251,13 @@ if BACKEND_AVAILABLE:
 else:
     raise ImportError("backend.compat module is required but not available")
 
-class BackgroundSizeFetcher:
+# ============================================================================
+# BackgroundSizeFetcher and SyncProgress - Now imported from backend.services
+# ============================================================================
+# Classes removed - using backend.services.BackgroundSizeFetcher and backend.services.SyncProgress
+
+
+# In-memory cache for games.map (avoids disk I/O on every get_game_info call)
     """Background service to fetch game sizes asynchronously without blocking sync.
     
     - Runs in background (fire-and-forget from sync)
@@ -382,7 +288,7 @@ class BackgroundSizeFetcher:
             logger.info("[SizeService] Stopping previous task for force_refresh")
             self.stop()
         
-        cache = load_game_sizes_cache()
+        cache = game_sizes_cache.load({})
         
         # Clear pending list to avoid duplicates from previous runs
         self._pending_games = []
@@ -398,7 +304,7 @@ class BackgroundSizeFetcher:
                     # Mark as pending in cache (null value)
                     cache[cache_key] = None
         
-        save_game_sizes_cache(cache)
+        game_sizes_cache.save(cache)
         logger.info(f"[SizeService] Queued {len(self._pending_games)} games for size fetching")
     
     def start(self):
@@ -416,7 +322,7 @@ class BackgroundSizeFetcher:
         
         # Load pending from cache if not already queued
         if not self._pending_games:
-            cache = load_game_sizes_cache()
+            cache = game_sizes_cache.load({})
             self._pending_games = [
                 tuple(k.split(':', 1)) for k, v in cache.items() 
                 if v is None and ':' in k
@@ -467,12 +373,12 @@ class BackgroundSizeFetcher:
                             
                             if size_bytes and size_bytes > 0:
                                 # Update cache immediately (persist progress)
-                                cache = load_game_sizes_cache()
+                                cache = game_sizes_cache.load({})
                                 cache[f"{store}:{game_id}"] = {
                                     'size_bytes': size_bytes,
                                     'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
                                 }
-                                save_game_sizes_cache(cache)
+                                game_sizes_cache.save(cache)
                                 logger.debug(f"[SizeService] Cached {store}:{game_id} = {size_bytes}")
                                 return (store, game_id, size_bytes)
                             else:
@@ -499,87 +405,7 @@ class BackgroundSizeFetcher:
             self._pending_games = []
 
 
-class SyncProgress:
-    """Track library sync progress with phase-based percentage tracking.
-    
-    Each sync phase has an allocated percentage range for smooth progress bar updates.
-    """
-    
-    # Phase percentage allocations: (start_pct, end_pct)
-    PHASE_RANGES = {
-        'idle': (0, 0),
-        'fetching': (0, 10),
-        'checking_installed': (10, 20),
-        'syncing': (20, 40),
-        'sgdb_lookup': (40, 55),
-        'checking_artwork': (55, 60),
-        'artwork': (60, 95),
-        'proton_setup': (95, 98),
-        'complete': (100, 100),
-        'error': (100, 100),
-        'cancelled': (100, 100)
-    }
-    
-    def __init__(self):
-        self.total_games = 0
-        self.synced_games = 0
-        self.current_game = {
-            "label": None,     # key i18n
-            "values": {}       # dynamic values
-        }
-        self.status = "idle"  # idle, fetching, checking_installed, syncing, sgdb_lookup, checking_artwork, artwork, proton_setup, complete, error, cancelled
-        self.error = None
-
-        # Artwork-specific tracking
-        self.artwork_total = 0
-        self.artwork_synced = 0
-        self.current_phase = "sync"  # "sync" or "artwork"
-
-        # Lock for thread-safe updates during parallel downloads
-        self._lock = asyncio.Lock()
-
-    async def increment_artwork(self, game_title: str) -> int:
-        """Thread-safe artwork counter increment"""
-        async with self._lock:
-            self.artwork_synced += 1
-            self.current_game = {
-                "label": "artwork.downloadProgress",
-                "values": {
-                    "synced": self.artwork_synced,
-                    "total": self.artwork_total,
-                    "game_title": game_title
-                }
-            }
-            return self.artwork_synced
-
-    def _calculate_progress(self) -> int:
-        """Calculate progress based on current phase and its percentage allocation."""
-        phase_range = self.PHASE_RANGES.get(self.status, (0, 0))
-        start_pct, end_pct = phase_range
-        
-        # For artwork phase, use artwork counters for sub-progress within the phase range
-        if self.status == 'artwork' and self.artwork_total > 0:
-            sub_progress = self.artwork_synced / self.artwork_total
-            return int(start_pct + (end_pct - start_pct) * sub_progress)
-        
-        # For other phases, return the start of the phase range
-        # (phases transition quickly, so showing phase start is sufficient)
-        return start_pct
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'success': True,
-            'total_games': self.total_games,
-            'synced_games': self.synced_games,
-            'current_game': self.current_game,
-            'status': self.status,
-            'progress_percent': self._calculate_progress(),
-            'error': self.error,
-            # Artwork fields
-            'artwork_total': self.artwork_total,
-            'artwork_synced': self.artwork_synced,
-            'current_phase': self.current_phase
-        }
+# SyncProgress class removed - now using backend.services.SyncProgress
 
 
 # In-memory cache for games.map (avoids disk I/O on every get_game_info call)
@@ -632,7 +458,7 @@ class ShortcutsManager:
     SHORTCUTS_CACHE_TTL = 5.0  # 5 seconds
 
     def __init__(self, steam_path: Optional[str] = None):
-        self.steam_path = steam_path or self._find_steam_path()
+        self.steam_path = steam_path or find_steam_path()
         self.shortcuts_path = self._find_shortcuts_vdf()
         logger.info(f"Shortcuts path: {self.shortcuts_path}")
         
@@ -640,18 +466,7 @@ class ShortcutsManager:
         self._shortcuts_cache: Optional[Dict[str, Any]] = None
         self._shortcuts_cache_time: float = 0
 
-    def _find_steam_path(self) -> Optional[str]:
-        """Find Steam installation directory"""
-        possible_paths = [
-            os.path.expanduser("~/.steam/steam"),
-            os.path.expanduser("~/.local/share/Steam"),
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(os.path.join(path, "steamapps")):
-                return path
-
-        return None
+    # _find_steam_path removed - now using backend.utils.steam.find_steam_path
 
     def _find_shortcuts_vdf(self) -> Optional[str]:
         """Find shortcuts.vdf file for the logged-in Steam user.
@@ -2327,267 +2142,12 @@ if BACKEND_AVAILABLE:
 else:
     raise ImportError("backend.stores.gog module is required but not available")
 
-class InstallHandler:
-    """Handles game installations across stores"""
-
-    def __init__(self, shortcuts_manager: ShortcutsManager, plugin_dir: Optional[str] = None):
-        self.shortcuts_manager = shortcuts_manager
-        self.plugin_dir = plugin_dir
-
-    async def get_epic_game_exe(self, game_id: str) -> Optional[str]:
-        """Get executable path for installed Epic game"""
-        legendary_bin = EpicConnector(plugin_dir=self.plugin_dir)._find_legendary()
-        if not legendary_bin:
-            return None
-
-        try:
-            # Get game info in JSON format
-            proc = await asyncio.create_subprocess_exec(
-                legendary_bin, 'info', game_id, '--json',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode == 0:
-                info = json.loads(stdout.decode())
-                install_path = info.get('install', {}).get('install_path', '')
-                executable = info.get('manifest', {}).get('launch_exe', '')
-
-                if install_path and executable:
-                    # Strip leading slash - legendary returns paths like '/Binaries/Win64/Game.exe'
-                    # which causes os.path.join to treat it as absolute, ignoring install_path
-                    executable = executable.lstrip('/')
-                    exe_path = os.path.join(install_path, executable)
-                    logger.info(f"Found Epic game executable: {exe_path}")
-                    return exe_path
-
-        except Exception as e:
-            logger.error(f"Error getting Epic game exe: {e}")
-
-        return None
-
-    async def install_epic_game(self, game_id: str, install_path: Optional[str] = None) -> Dict[str, Any]:
-        """Install Epic game via legendary"""
-        legendary_bin = EpicConnector(plugin_dir=self.plugin_dir)._find_legendary()
-        if not legendary_bin:
-            return {'success': False, 'error': 'legendary not found'}
-
-        try:
-            cmd = [legendary_bin, 'install', game_id, '--yes']
-            if install_path:
-                cmd.extend(['--base-path', install_path])
-
-            logger.info(f"Installing Epic game: {' '.join(cmd)}")
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode == 0:
-                # Get actual executable path
-                exe_path = await self.get_epic_game_exe(game_id)
-
-                if exe_path:
-                    # Extract install directory from exe path
-                    import os.path
-                    install_dir = os.path.dirname(exe_path)
-
-                    # Update shortcuts.vdf with install info
-                    await self.shortcuts_manager.mark_installed(game_id, 'epic', install_dir, exe_path)
-                else:
-                    # Fallback: keep launcher script
-                    logger.warning(f"Could not find exe for {game_id}, keeping launcher script")
-
-                logger.info(f"Successfully installed {game_id}")
-                return {'success': True, 'exe_path': exe_path}
-            else:
-                logger.error(f"Install failed: {stderr.decode()}")
-                return {'success': False, 'error': stderr.decode()}
-
-        except Exception as e:
-            logger.error(f"Error installing Epic game: {e}")
-            return {'success': False, 'error': str(e)}
-
-    async def get_gog_game_exe(self, game_id: str, install_dir: str) -> Optional[str]:
-        """Find executable for GOG game"""
-        # Look for start.sh or other launch scripts
-        common_launchers = ['start.sh', 'launch.sh', f'{game_id}.sh']
-
-        for launcher in common_launchers:
-            launcher_path = os.path.join(install_dir, launcher)
-            if os.path.exists(launcher_path):
-                logger.info(f"Found GOG game launcher: {launcher_path}")
-                return launcher_path
-
-        # Try to find any .sh file in the directory
-        try:
-            for item in os.listdir(install_dir):
-                if item.endswith('.sh') and os.path.isfile(os.path.join(install_dir, item)):
-                    launcher_path = os.path.join(install_dir, item)
-                    logger.info(f"Found GOG game script: {launcher_path}")
-                    return launcher_path
-        except Exception as e:
-            logger.error(f"Error searching for GOG launcher: {e}")
-
-        return None
-
-    async def install_gog_game(self, game_id: str, gog_instance, install_path: Optional[str] = None) -> Dict[str, Any]:
-        """Install GOG game using GOG API
-
-        Args:
-            game_id: GOG game product ID
-            gog_instance: Instance of GOG class with API methods
-            install_path: Optional custom install path (not used - GOG class manages this)
-
-        Returns:
-            Dict with success status and exe_path
-        """
-        try:
-            # Use the GOG class's install_game method which uses the API
-            result = await gog_instance.install_game(game_id)
-
-            if result.get('success'):
-                # Update shortcuts.vdf with the installed game info
-                exe_path = result.get('executable')
-                install_dir = result.get('install_path')
-                work_dir = result.get('work_dir')  # From goggame-*.info
-
-                if install_dir:
-                    await self.shortcuts_manager.mark_installed(game_id, 'gog', install_dir, exe_path, work_dir)
-                    logger.info(f"Successfully installed GOG game {game_id} with work_dir={work_dir}")
-                    return {'success': True, 'exe_path': exe_path, 'install_path': install_dir, 'work_dir': work_dir}
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Error installing GOG game: {e}", exc_info=True)
-            return {'success': False, 'error': str(e)}
-
-    async def get_amazon_game_exe(self, game_id: str, install_dir: str = None) -> Optional[str]:
-        """Find executable for Amazon game using fuel.json"""
-        # If no install_dir provided, try to find from nile config
-        if not install_dir:
-            nile_config = os.path.expanduser("~/.config/nile")
-            installed_file = os.path.join(nile_config, "installed.json")
-            
-            if os.path.exists(installed_file):
-                try:
-                    with open(installed_file, 'r') as f:
-                        installed_list = json.load(f)
-                    
-                    for game in installed_list:
-                        if game.get('id') == game_id:
-                            install_dir = game.get('path', '')
-                            break
-                except Exception as e:
-                    logger.error(f"[Amazon] Error reading installed.json: {e}")
-        
-        if not install_dir:
-            logger.warning(f"[Amazon] Could not find install directory for {game_id}")
-            return None
-        
-        # Parse fuel.json for executable
-        fuel_path = os.path.join(install_dir, 'fuel.json')
-        if not os.path.exists(fuel_path):
-            logger.warning(f"[Amazon] No fuel.json found at {fuel_path}")
-            return None
-        
-        try:
-            import re
-            with open(fuel_path, 'r') as f:
-                content = f.read()
-                # Remove single-line comments (fuel.json may have them)
-                content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-                fuel_data = json.loads(content)
-            
-            main_cmd = fuel_data.get('Main', {}).get('Command', '')
-            if main_cmd:
-                exe_path = os.path.join(install_dir, main_cmd)
-                logger.info(f"[Amazon] Found executable from fuel.json: {exe_path}")
-                return exe_path
-        except Exception as e:
-            logger.error(f"[Amazon] Error parsing fuel.json: {e}")
-        
-        return None
-
-    async def install_amazon_game(self, game_id: str, amazon_instance, install_path: Optional[str] = None) -> Dict[str, Any]:
-        """Install Amazon game using nile CLI
-
-        Args:
-            game_id: Amazon game product ID
-            amazon_instance: Instance of AmazonConnector with install methods
-            install_path: Optional custom install path
-
-        Returns:
-            Dict with success status and exe_path
-        """
-        try:
-            # Use the AmazonConnector's install_game method
-            result = await amazon_instance.install_game(game_id)
-
-            if result.get('success'):
-                # Update shortcuts.vdf with the installed game info
-                exe_path = result.get('exe_path')
-                install_dir = result.get('install_path')
-
-                if install_dir:
-                    await self.shortcuts_manager.mark_installed(game_id, 'amazon', install_dir, exe_path)
-                    logger.info(f"Successfully installed Amazon game {game_id}")
-                    return {'success': True, 'exe_path': exe_path, 'install_path': install_dir}
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Error installing Amazon game: {e}", exc_info=True)
-            return {'success': False, 'error': str(e)}
+# InstallHandler - now imported from backend.services.install_handler
+# Use: InstallHandler(shortcuts_manager, plugin_dir)
 
 
-class BackgroundSyncService:
-    """Background service that syncs libraries every 5 minutes"""
-
-    def __init__(self, plugin):
-        self.plugin = plugin
-        self.running = False
-        self.task = None
-
-    async def start(self):
-        """Start background sync"""
-        if self.running:
-            logger.warning("Background sync already running")
-            return
-
-        self.running = True
-        self.task = asyncio.create_task(self._sync_loop())
-        logger.info("Background sync service started")
-
-    async def stop(self):
-        """Stop background sync"""
-        self.running = False
-        if self.task:
-            self.task.cancel()
-            try:
-                await self.task
-            except asyncio.CancelledError:
-                pass
-        logger.info("Background sync service stopped")
-
-    async def _sync_loop(self):
-        """Main sync loop - sync game lists only, no artwork"""
-        while self.running:
-            try:
-                # Only sync game lists, don't fetch artwork in background
-                await self.plugin.sync_libraries(fetch_artwork=False)
-                await asyncio.sleep(300)  # 5 minutes
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in sync loop: {e}")
-                await asyncio.sleep(60)  # Retry in 1 minute on error
+# BackgroundSyncService - now imported from backend.services.background_sync
+# Use: BackgroundSyncService(plugin)
 
 
 class Plugin:
