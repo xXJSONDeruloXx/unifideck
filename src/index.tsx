@@ -12,8 +12,9 @@ import {
   playSectionClasses,
   appDetailsHeaderClasses,
   ToggleField,
+  showModal,
 } from "@decky/ui";
-import React, { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect, useRef } from "react";
 import { FaGamepad } from "react-icons/fa";
 import { loadTranslations, t, changeLanguage } from "./i18n";
 import { I18nextProvider, useTranslation } from "react-i18next";
@@ -25,11 +26,7 @@ loadTranslations();
 // Import views
 
 // Import tab system
-import {
-  patchLibrary,
-  loadCompatCacheFromBackend,
-  updateSingleGameStatus,
-} from "./tabs";
+import { patchLibrary, loadCompatCacheFromBackend } from "./tabs";
 
 import { syncUnifideckCollections } from "./spoofing/CollectionManager";
 import {
@@ -228,12 +225,12 @@ function patchGameDetailsRoute() {
               innerContainer
                 ? "InnerContainer"
                 : headerContainer
-                  ? "Header"
-                  : playSection
-                    ? "PlaySection"
-                    : buttonsContainer
-                      ? "ButtonsContainer"
-                      : "GameInfoRow"
+                ? "Header"
+                : playSection
+                ? "PlaySection"
+                : buttonsContainer
+                ? "ButtonsContainer"
+                : "GameInfoRow"
             } at index ${spliceIndex}`,
           );
         } catch (error) {
@@ -814,8 +811,8 @@ const Content: FC = () => {
       store === "epic"
         ? t("storeConnections.epicGames")
         : store === "amazon"
-          ? t("storeConnections.amazonGames")
-          : t("storeConnections.gog");
+        ? t("storeConnections.amazonGames")
+        : t("storeConnections.gog");
 
     try {
       let methodName: string;
@@ -1311,8 +1308,7 @@ export default definePlugin(() => {
       routerHook.removePatch("/library", libraryPatch);
       routerHook.removePatch("/library/app/:appid", patchGameDetails);
 
-      // Clear game info cache
-      gameInfoCache.clear();
+      // Game info cache is now internal to InstallInfoDisplay component
 
       // Stop background sync service
       call("stop_background_sync").catch((error) =>

@@ -221,9 +221,7 @@ else:
 
 # ShortcutsManager class moved to backend.services.shortcuts_manager
 # This placeholder prevents breaking code that follows
-if False:
-# ShortcutsManager - now imported from backend.services.shortcuts_manager
-# Use: ShortcutsManager(steam_path)
+# (Previously had: if False: comment block here)
 
 class Plugin:
     """Main Unifideck plugin class"""

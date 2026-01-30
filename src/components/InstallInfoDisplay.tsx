@@ -1,12 +1,6 @@
 import React, { FC, useState, useEffect, useRef } from "react";
-import {
-  call,
-  toaster,
-  showModal,
-  ConfirmModal,
-  DialogButton,
-  Focusable,
-} from "@decky/api";
+import { call, toaster } from "@decky/api";
+import { showModal, ConfirmModal, DialogButton, Focusable } from "@decky/ui";
 import { useTranslation } from "react-i18next";
 import StoreIcon from "./StoreIcon";
 import { UninstallConfirmModal } from "./UninstallConfirmModal";
@@ -451,7 +445,9 @@ const InstallInfoDisplay: FC<{ appId: number }> = ({ appId }) => {
           // Add focus visual feedback for controller users
           focusable={true}
         >
-          {processing ? t("installButton.processing") : (
+          {processing ? (
+            t("installButton.processing")
+          ) : (
             <>
               <StoreIcon store={gameInfo.store} size="16px" color="#ffffff" />
               {buttonText}
