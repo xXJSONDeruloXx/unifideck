@@ -9,10 +9,10 @@ import json
 import logging
 import os
 import re
-import shutil
 from typing import Dict, Any, List, Optional
 
 from .base import Store, Game
+from ..utils.binary_resolver import find_binary
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +33,12 @@ class AmazonConnector(Store):
 
     def _find_nile(self) -> Optional[str]:
         """Find nile executable - checks bundled binary first, then system"""
-        # Priority 1: Check bundled nile in plugin bin/ directory
-        if self.plugin_dir:
-            bundled_nile = os.path.join(self.plugin_dir, 'bin', 'nile')
-            if os.path.isfile(bundled_nile) and os.access(bundled_nile, os.X_OK):
-                logger.info(f"[Amazon] Using bundled nile: {bundled_nile}")
-                return bundled_nile
-
-        # Priority 2: Check system PATH
-        nile_path = shutil.which("nile")
-        if nile_path:
-            logger.info(f"[Amazon] Using system nile: {nile_path}")
-            return nile_path
-
-        # Priority 3: Check ~/.local/bin explicitly
-        local_bin_nile = os.path.expanduser("~/.local/bin/nile")
-        if os.path.exists(local_bin_nile):
-            logger.info(f"[Amazon] Using user nile: {local_bin_nile}")
-            return local_bin_nile
-
-        logger.warning("[Amazon] Nile not found - Amazon Games features unavailable")
-        return None
+        return find_binary(
+            binary_name='nile',
+            plugin_dir=self.plugin_dir,
+            log_prefix='[Amazon]',
+            not_found_help='Amazon Games features unavailable'
+        )
 
     async def is_available(self) -> bool:
         """Check if nile is installed and authenticated"""

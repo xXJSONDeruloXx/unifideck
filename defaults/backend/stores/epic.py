@@ -9,11 +9,11 @@ import json
 import logging
 import os
 import re
-import shutil
 import time
 from typing import Dict, Any, List, Optional
 
 from .base import Store, Game
+from ..utils.binary_resolver import find_binary
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +42,12 @@ class EpicConnector(Store):
 
     def _find_legendary(self) -> Optional[str]:
         """Find legendary executable - checks bundled binary first, then system"""
-        # Priority 1: Check bundled legendary in plugin bin/ directory
-        if self.plugin_dir:
-            bundled_legendary = os.path.join(self.plugin_dir, 'bin', 'legendary')
-            if os.path.isfile(bundled_legendary) and os.access(bundled_legendary, os.X_OK):
-                logger.info(f"[EPIC] Using bundled legendary: {bundled_legendary}")
-                return bundled_legendary
-
-        # Priority 2: Check system PATH
-        legendary_path = shutil.which("legendary")
-        if legendary_path:
-            logger.info(f"[EPIC] Using system legendary: {legendary_path}")
-            return legendary_path
-
-        # Priority 3: Check ~/.local/bin explicitly
-        local_bin_legendary = os.path.expanduser("~/.local/bin/legendary")
-        if os.path.exists(local_bin_legendary):
-            logger.info(f"[EPIC] Using user legendary: {local_bin_legendary}")
-            return local_bin_legendary
-
-        logger.warning("[EPIC] Legendary not found - Epic features unavailable")
-        logger.info("[EPIC] Install with: pip install --user legendary-gl")
-        return None
+        return find_binary(
+            binary_name='legendary',
+            plugin_dir=self.plugin_dir,
+            log_prefix='[EPIC]',
+            not_found_help='Epic features unavailable. Install with: pip install --user legendary-gl'
+        )
 
     async def is_available(self) -> bool:
         """Check if legendary is installed and authenticated"""
